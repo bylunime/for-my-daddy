@@ -60,6 +60,7 @@ const paperStage=document.querySelector('.card-stage');
 const paper=$('card');
 const reducedMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
 let preview=null,dragDirection=0,pointerId=null,dragging=false;
+let gestureWidth=0,dragFrame=0,pendingDragX=0;
 function clearPreview(){preview?.remove();preview=null;dragDirection=0;paperStage.classList.remove('turning')}
 function preparePreview(direction){
  if(preview&&dragDirection===direction)return;
@@ -82,25 +83,27 @@ function preparePreview(direction){
  paperStage.insertBefore(preview,paper);paperStage.classList.add('turning');
 }
 async function settlePaper(){
+ if(busy)return;
  busy=true;
  try{
   if(!reducedMotion())await paper.animate([{transform:paper.style.transform||'none',opacity:Number(paper.style.opacity||1)},{transform:'none',opacity:1}],{duration:220,easing:'cubic-bezier(.2,.8,.2,1)'}).finished;
- }finally{paper.style.transform='';paper.style.opacity='';clearPreview();busy=false}
+ }catch(error){if(error.name!=='AbortError')console.error(error)}finally{paper.style.transform='';paper.style.opacity='';clearPreview();busy=false}
 }
 async function turnPaper(direction,apply){
- if(busy||$('complete').open)return;
- busy=true;preparePreview(direction);
+ if(busy||pointerId!==null||$('complete').open)return;
+ busy=true;
  if('speechSynthesis'in window)speechSynthesis.cancel();
  let outgoing,incoming;
  try{
+  preparePreview(direction);
   if(!reducedMotion()){
-   const distance=Math.max(paperStage.getBoundingClientRect().width,window.innerWidth)*1.15;
-   outgoing=paper.animate([{transform:paper.style.transform||'none',opacity:Number(paper.style.opacity||1)},{transform:`translateX(${direction*distance}px) translateY(-20px) rotate(${direction*13}deg)`,opacity:.15}],{duration:420,easing:'cubic-bezier(.3,.65,.3,1)',fill:'forwards'});
-   incoming=preview.animate([{transform:preview.style.transform||'translateY(10px) scale(.98)'},{transform:'none'}],{duration:420,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});
+   const distance=paperStage.clientWidth*1.12;
+   outgoing=paper.animate([{transform:paper.style.transform||'none',opacity:Number(paper.style.opacity||1)},{transform:`translateX(${direction*distance}px) translateY(-20px) rotate(${direction*5}deg)`,opacity:.4}],{duration:300,easing:'cubic-bezier(.2,.7,.2,1)',fill:'forwards'});
+   incoming=preview.animate([{transform:preview.style.transform||'translateY(10px) scale(.98)'},{transform:'none'}],{duration:300,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});
    await outgoing.finished;
   }
   apply();
- }finally{paper.style.transform='';paper.style.opacity='';outgoing?.cancel();incoming?.cancel();clearPreview();busy=false}
+ }catch(error){if(error.name!=='AbortError')console.error(error)}finally{paper.style.transform='';paper.style.opacity='';outgoing?.cancel();incoming?.cancel();clearPreview();busy=false}
 }
 function previous(){
  if(page===0){if(!busy&&paper.style.transform)return settlePaper();return}
@@ -121,40 +124,57 @@ $('choose-lesson').onclick=showLessons;$('lessons-nav').onclick=showLessons;$('l
 $('review').onclick=()=>load(lesson);$('next-lesson').onclick=()=>{load((lesson+1)%lessons.length);$('learn-nav').click()};$('close-dialog').onclick=()=>$('complete').close();
 const card=$('card');
 function endGesture(){
- startX=null;startY=null;dragging=false;
- if(pointerId!==null&&card.hasPointerCapture(pointerId))card.releasePointerCapture(pointerId);
- pointerId=null;
+ const capturedId=pointerId;
+ // Clear state before releasing capture: lostpointercapture may fire immediately.
+ pointerId=null;startX=null;startY=null;dragging=false;
+ cancelAnimationFrame(dragFrame);dragFrame=0;
+ if(capturedId!==null&&card.hasPointerCapture(capturedId))card.releasePointerCapture(capturedId);
+}
+function drawDrag(dx){
+ if(dx>0&&page===0){
+  // A small resistance at the first page, rather than a sudden reset.
+  clearPreview();card.style.transform=reducedMotion()?'':`translateX(${Math.min(dx*.14,22)}px)`;card.style.opacity='';return;
+ }
+ preparePreview(dx<0?-1:1);
+ if(reducedMotion())return;
+ const progress=Math.min(Math.abs(dx)/gestureWidth,1);
+ card.style.opacity=String(1-progress*.14);
+ card.style.transform=`translateX(${dx}px) rotate(${Math.max(-4,Math.min(4,dx/gestureWidth*4))}deg)`;
+ preview.style.transform=`translateY(${8*(1-progress)}px) scale(${.985+.015*progress})`;
 }
 card.addEventListener('pointerdown',e=>{
  if(e.target.closest('button')||busy||$('complete').open||pointerId!==null||!e.isPrimary||e.button!==0)return;
  startX=e.clientX;startY=e.clientY;pointerId=e.pointerId;dragging=false;
+ gestureWidth=paperStage.clientWidth;
 });
 card.addEventListener('pointermove',e=>{
  if(e.pointerId!==pointerId||startX===null||busy)return;
  const dx=e.clientX-startX,dy=e.clientY-startY;
  if(!dragging){
-  if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){endGesture();return}
-  if(Math.abs(dx)<10||Math.abs(dx)<Math.abs(dy)*1.2)return;
+  if(Math.abs(dy)>10&&Math.abs(dy)>Math.abs(dx)){endGesture();return}
+  if(Math.abs(dx)<12||Math.abs(dx)<Math.abs(dy)*1.35)return;
   dragging=true;card.setPointerCapture(e.pointerId);
  }
- if(dx>0&&page===0){card.style.transform='';card.style.opacity='';clearPreview();return}
- preparePreview(dx<0?-1:1);
- if(!reducedMotion()){
-  const width=paperStage.getBoundingClientRect().width,progress=Math.min(Math.abs(dx)/width,1);
-  card.style.opacity=String(1-Math.min(progress*1.1,.35));
-  card.style.transform=`translateX(${dx}px) translateY(${-progress*9}px) rotate(${Math.max(-9,Math.min(9,dx/width*10))}deg)`;
-  preview.style.transform=`translateY(${10*(1-progress)}px) scale(${.98+.02*progress})`;
- }
+ pendingDragX=dx;
+ if(!dragFrame)dragFrame=requestAnimationFrame(()=>{dragFrame=0;if(pointerId!==null&&!busy)drawDrag(pendingDragX)});
 });
 card.addEventListener('pointerup',e=>{
  if(e.pointerId!==pointerId||startX===null)return;
- const dx=e.clientX-startX,dy=e.clientY-startY,wasDragging=dragging;endGesture();
+ const dx=e.clientX-startX,dy=e.clientY-startY,wasDragging=dragging;
+ if(wasDragging)drawDrag(dx);
+ endGesture();
  if(!wasDragging)return;
- const threshold=Math.min(100,card.getBoundingClientRect().width*.22);
+ const threshold=Math.max(55,Math.min(100,gestureWidth*.2));
  if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*1.2){if(dx>0)previous();else next()}
  else settlePaper();
 });
-card.addEventListener('pointercancel',()=>{if(pointerId===null)return;endGesture();if(!busy)settlePaper()});
-card.addEventListener('lostpointercapture',()=>{if(pointerId===null)return;endGesture();if(!busy)settlePaper()});
+function cancelGesture(e){
+ if(pointerId===null||(e.pointerId!==undefined&&e.pointerId!==pointerId))return;
+ const wasDragging=dragging;endGesture();if(wasDragging&&!busy)settlePaper();
+}
+card.addEventListener('pointercancel',cancelGesture);
+card.addEventListener('lostpointercapture',cancelGesture);
+window.addEventListener('blur',cancelGesture);
+card.addEventListener('click',e=>{if(busy){e.preventDefault();e.stopImmediatePropagation()}},true);
 card.addEventListener('keydown',e=>{if(e.target!==card||pointerId!==null)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(e.key==='ArrowLeft')next();else previous()}});
 load(0);

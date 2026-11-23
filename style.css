@@ -40,3 +40,8 @@ body{overflow-x:clip}
 @media(prefers-reduced-motion:reduce){.card-stage::before{transform:translateY(12px) scale(.98)}.card-stage::after{transform:translateY(6px) scale(.99)}}
 
 .actions button:disabled{opacity:.25;cursor:default;background:none}
+
+/* Keep the outgoing sheet stable while its successor sits beneath it. */
+.card-stage{perspective:none}
+.card{backface-visibility:hidden;-webkit-backface-visibility:hidden;transform-origin:50% 65%}
+.card.paper-preview{transform:translateY(8px) scale(.985)}
