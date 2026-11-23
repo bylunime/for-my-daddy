@@ -33,10 +33,21 @@ function tiles(){
 }
 function load(i){if(busy||pointerId!==null)return;lesson=i;index=0;page=0;$('complete').close();$('status').textContent='';render();tiles()}
 const sceneNames=['airport','hotel','restaurant','city'];
+const warmImages=new Map();
+function warmNearbyImages(){
+ const paths=[index,index+1,index-1].filter(n=>n>=0&&n<lessons[lesson].cards.length).map(n=>`assets/cards/${sceneNames[lesson]}-${n+1}.jpg`);
+ for(const path of paths){
+  if(warmImages.has(path))continue;
+  const image=new Image();image.decoding='async';image.src=path;warmImages.set(path,image);
+  image.decode?.().catch(()=>{});
+ }
+ for(const path of warmImages.keys())if(!paths.includes(path))warmImages.delete(path);
+}
+
 function paintPage(root,target){
  const questionIndex=Math.floor(target/2),isAnswer=target%2===1,c=lessons[lesson].cards[questionIndex];
  const find=id=>root.querySelector('#'+id);
- root.style.setProperty('--scene-image',`url("assets/${sceneNames[lesson]}-${questionIndex+1}.png")`);
+ root.style.setProperty('--scene-image',`url("assets/cards/${sceneNames[lesson]}-${questionIndex+1}.jpg")`);
  find('situation').textContent=c[0];
  find('card-number').textContent=`${String(questionIndex+1).padStart(2,'0')} / 05 · ${isAnswer?'답':'질문'}`;
  find('korean').textContent=c[2];find('korean').hidden=isAnswer;
@@ -51,6 +62,7 @@ function render(){
  index=Math.floor(page/2);
  if(page%2===1)viewed[lesson].add(index);
  paintPage($('card'),page);
+ warmNearbyImages();
  $('lesson-label').textContent=`LESSON ${String(lesson+1).padStart(2,'0')} · ${lessons[lesson].title}`;
  $('progress-label').textContent=`오늘의 페이지 ${page+1} / ${lessons[lesson].cards.length*2}`;
  $('mastered-count').textContent=`답 확인 ${viewed[lesson].size} / 5`;
@@ -59,6 +71,7 @@ function render(){
 const paperStage=document.querySelector('.card-stage');
 const paper=$('card');
 const reducedMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+const lightweightMotion=()=>matchMedia('(pointer: coarse)').matches||window.innerWidth<=700;
 let preview=null,dragDirection=0,pointerId=null,dragging=false;
 let gestureWidth=0,dragFrame=0,pendingDragX=0;
 function clearPreview(){preview?.remove();preview=null;dragDirection=0;paperStage.classList.remove('turning')}
@@ -97,9 +110,11 @@ async function turnPaper(direction,apply){
  try{
   preparePreview(direction);
   if(!reducedMotion()){
-   const distance=paperStage.clientWidth*1.12;
-   outgoing=paper.animate([{transform:paper.style.transform||'none',opacity:Number(paper.style.opacity||1)},{transform:`translateX(${direction*distance}px) translateY(-20px) rotate(${direction*5}deg)`,opacity:.4}],{duration:300,easing:'cubic-bezier(.2,.7,.2,1)',fill:'forwards'});
-   incoming=preview.animate([{transform:preview.style.transform||'translateY(10px) scale(.98)'},{transform:'none'}],{duration:300,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});
+   const distance=paperStage.clientWidth*1.05;
+   const lightweight=lightweightMotion();
+   const endTransform=lightweight?`translate3d(${direction*distance}px,0,0)`:`translateX(${direction*distance}px) translateY(-20px) rotate(${direction*5}deg)`;
+   outgoing=paper.animate([{transform:paper.style.transform||'none',opacity:Number(paper.style.opacity||1)},{transform:endTransform,opacity:lightweight?.94:.4}],{duration:300,easing:'cubic-bezier(.2,.7,.2,1)',fill:'forwards'});
+   if(!lightweight)incoming=preview.animate([{transform:preview.style.transform||'translateY(10px) scale(.98)'},{transform:'none'}],{duration:300,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});
    await outgoing.finished;
   }
   apply();
@@ -138,9 +153,10 @@ function drawDrag(dx){
  preparePreview(dx<0?-1:1);
  if(reducedMotion())return;
  const progress=Math.min(Math.abs(dx)/gestureWidth,1);
- card.style.opacity=String(1-progress*.14);
- card.style.transform=`translateX(${dx}px) rotate(${Math.max(-4,Math.min(4,dx/gestureWidth*4))}deg)`;
- preview.style.transform=`translateY(${8*(1-progress)}px) scale(${.985+.015*progress})`;
+ const lightweight=lightweightMotion();
+ card.style.opacity=lightweight?'.96':String(1-progress*.14);
+ card.style.transform=lightweight?`translate3d(${dx}px,0,0)`:`translateX(${dx}px) rotate(${Math.max(-4,Math.min(4,dx/gestureWidth*4))}deg)`;
+ preview.style.transform=lightweight?'none':`translateY(${8*(1-progress)}px) scale(${.985+.015*progress})`;
 }
 card.addEventListener('pointerdown',e=>{
  if(e.target.closest('button')||busy||$('complete').open||pointerId!==null||!e.isPrimary||e.button!==0)return;
