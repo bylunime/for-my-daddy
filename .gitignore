@@ -1,0 +1,10 @@
+.DS_Store
+.env
+.env.*
+!.env.example
+node_modules/
+# Unused first-draft lesson backgrounds
+/assets/airport.png
+/assets/hotel.png
+/assets/restaurant.png
+/assets/city.png
