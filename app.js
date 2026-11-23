@@ -58,7 +58,7 @@ function preparePreview(direction){
  preview.removeAttribute('id');preview.removeAttribute('tabindex');
  preview.classList.add('paper-preview');preview.setAttribute('aria-hidden','true');preview.inert=true;
  preview.style.transform='';preview.style.opacity='';
- if(direction<0){
+ if(direction>0){
   preview.querySelector('#answer').hidden=false;
   preview.querySelector('#korean').classList.add('revealed');
   preview.querySelector('#card-prompt').textContent='이렇게 말하면 돼요.';
@@ -81,8 +81,8 @@ function preparePreview(direction){
 async function settlePaper(){
  busy=true;
  try{
-  if(!reducedMotion())await paper.animate([{transform:paper.style.transform||'none'},{transform:'none'}],{duration:220,easing:'cubic-bezier(.2,.8,.2,1)'}).finished;
- }finally{paper.style.transform='';clearPreview();busy=false}
+  if(!reducedMotion())await paper.animate([{transform:paper.style.transform||'none',opacity:Number(paper.style.opacity||1)},{transform:'none',opacity:1}],{duration:220,easing:'cubic-bezier(.2,.8,.2,1)'}).finished;
+ }finally{paper.style.transform='';paper.style.opacity='';clearPreview();busy=false}
 }
 async function turnPaper(direction,apply){
  if(busy||$('complete').open)return;
@@ -92,23 +92,23 @@ async function turnPaper(direction,apply){
  try{
   if(!reducedMotion()){
    const distance=Math.max(paperStage.getBoundingClientRect().width,window.innerWidth)*1.15;
-   outgoing=paper.animate([{transform:paper.style.transform||'none',opacity:1},{transform:`translateX(${direction*distance}px) translateY(-20px) rotate(${direction*13}deg)`,opacity:.15}],{duration:420,easing:'cubic-bezier(.3,.65,.3,1)',fill:'forwards'});
+   outgoing=paper.animate([{transform:paper.style.transform||'none',opacity:Number(paper.style.opacity||1)},{transform:`translateX(${direction*distance}px) translateY(-20px) rotate(${direction*13}deg)`,opacity:.15}],{duration:420,easing:'cubic-bezier(.3,.65,.3,1)',fill:'forwards'});
    incoming=preview.animate([{transform:preview.style.transform||'translateY(10px) scale(.98)'},{transform:'none'}],{duration:420,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});
    await outgoing.finished;
   }
   apply();
- }finally{paper.style.transform='';outgoing?.cancel();incoming?.cancel();clearPreview();busy=false}
+ }finally{paper.style.transform='';paper.style.opacity='';outgoing?.cancel();incoming?.cancel();clearPreview();busy=false}
 }
 function reveal(){
  if(!$('answer').hidden){if(!busy&&paper.style.transform)settlePaper();return}
- return turnPaper(-1,()=>{
+ return turnPaper(1,()=>{
   $('answer').hidden=false;$('korean').classList.add('revealed');$('card-prompt').textContent='이렇게 말하면 돼요.';
   viewed[lesson].add(index);$('mastered-count').textContent=`답 확인 ${viewed[lesson].size} / 5`;
   $('status').textContent='천천히 소리 내어 따라 해보세요.';tiles();
  });
 }
 function next(){
- return turnPaper(1,()=>{
+ return turnPaper(-1,()=>{
   if(index===lessons[lesson].cards.length-1){$('complete-text').textContent=`${lessons[lesson].title}의 다섯 카드를 둘러봤어요. 영어 답은 ${viewed[lesson].size}개 확인했어요.`;$('complete').showModal()}
   else{index++;render();$('status').textContent='새 문장이에요. 영어로 떠올려보세요.'}
  });
@@ -138,10 +138,11 @@ card.addEventListener('pointermove',e=>{
   if(Math.abs(dx)<10||Math.abs(dx)<Math.abs(dy)*1.2)return;
   dragging=true;card.setPointerCapture(e.pointerId);
  }
- if(dx<0&&!$('answer').hidden){card.style.transform='';clearPreview();return}
+ if(dx>0&&!$('answer').hidden){card.style.transform='';card.style.opacity='';clearPreview();return}
  preparePreview(dx<0?-1:1);
  if(!reducedMotion()){
   const width=paperStage.getBoundingClientRect().width,progress=Math.min(Math.abs(dx)/width,1);
+  card.style.opacity=String(1-Math.min(progress*1.1,.35));
   card.style.transform=`translateX(${dx}px) translateY(${-progress*9}px) rotate(${Math.max(-9,Math.min(9,dx/width*10))}deg)`;
   preview.style.transform=`translateY(${10*(1-progress)}px) scale(${.98+.02*progress})`;
  }
@@ -151,10 +152,10 @@ card.addEventListener('pointerup',e=>{
  const dx=e.clientX-startX,dy=e.clientY-startY,wasDragging=dragging;endGesture();
  if(!wasDragging)return;
  const threshold=Math.min(100,card.getBoundingClientRect().width*.22);
- if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*1.2){if(dx>0)next();else reveal()}
+ if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*1.2){if(dx>0)reveal();else next()}
  else settlePaper();
 });
 card.addEventListener('pointercancel',()=>{if(pointerId===null)return;endGesture();if(!busy)settlePaper()});
 card.addEventListener('lostpointercapture',()=>{if(pointerId===null)return;endGesture();if(!busy)settlePaper()});
-card.addEventListener('keydown',e=>{if(e.target!==card||pointerId!==null)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(e.key==='ArrowLeft')reveal();else next()}});
+card.addEventListener('keydown',e=>{if(e.target!==card||pointerId!==null)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(e.key==='ArrowLeft')next();else reveal()}});
 load(0);
