@@ -2,7 +2,7 @@
 
 ## v0.1 — 2026-11-23
 
-FDTD (From Daughter, To My Dad)의 첫 로컬 시안.
+fdtd (From Daughter, To My Dad)의 첫 로컬 시안.
 
 - 공항·호텔·식당·길 찾기 4개 레슨과 20개 여행 영어 카드
 - 한글 질문에서 왼쪽으로 넘기면 영어 답·발음 듣기·말하기 힌트 표시
