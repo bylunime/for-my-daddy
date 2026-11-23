@@ -31,7 +31,7 @@ function tiles(){
  const grid=$('lesson-grid');grid.replaceChildren();
  lessons.forEach((l,i)=>{const b=document.createElement('button');b.className='lesson-tile'+(i===lesson?' selected':'');b.setAttribute('aria-pressed',String(i===lesson));b.innerHTML=`<span class="tile-top"><span class="tile-number">LESSON ${String(i+1).padStart(2,'0')}</span><span class="tile-icon" aria-hidden="true">${l.icon}</span></span><strong>${l.title}</strong><span class="tile-sub">${l.sub}</span><span class="tile-state">${i===lesson?'지금 연습 중':`답 확인 ${viewed[i].size} / 5`}</span>`;b.onclick=()=>{load(i);$('learn-nav').click()};grid.append(b)})
 }
-function load(i){if(busy)return;lesson=i;index=0;$('complete').close();$('status').textContent='';render();tiles()}
+function load(i){if(busy||pointerId!==null)return;lesson=i;index=0;$('complete').close();$('status').textContent='';render();tiles()}
 function render(){
  const l=lessons[lesson],c=l.cards[index];
  document.body.style.setProperty("--scene-image", `url("assets/${["airport","hotel","restaurant","city"][lesson]}-${index+1}.png")`);
@@ -46,17 +46,72 @@ function render(){
  $('card-prompt').textContent='영어로 어떻게 말할까요?';
  $('hint-toggle').setAttribute('aria-expanded','false');$('hint-toggle').innerHTML='말하기 힌트 보기 <span aria-hidden="true">＋</span>';
 }
-function reveal(){
+const paperStage=document.querySelector('.card-stage');
+const paper=$('card');
+const reducedMotion=()=>matchMedia('(prefers-reduced-motion: reduce)').matches;
+let preview=null,dragDirection=0,pointerId=null,dragging=false;
+function clearPreview(){preview?.remove();preview=null;dragDirection=0;paperStage.classList.remove('turning')}
+function preparePreview(direction){
+ if(preview&&dragDirection===direction)return;
+ clearPreview();dragDirection=direction;
+ preview=paper.cloneNode(true);
+ preview.removeAttribute('id');preview.removeAttribute('tabindex');
+ preview.classList.add('paper-preview');preview.setAttribute('aria-hidden','true');preview.inert=true;
+ preview.style.transform='';preview.style.opacity='';
+ if(direction<0){
+  preview.querySelector('#answer').hidden=false;
+  preview.querySelector('#korean').classList.add('revealed');
+  preview.querySelector('#card-prompt').textContent='이렇게 말하면 돼요.';
+ }else if(index<lessons[lesson].cards.length-1){
+  const c=lessons[lesson].cards[index+1];
+  preview.style.setProperty('--scene-image',`url("assets/${['airport','hotel','restaurant','city'][lesson]}-${index+2}.png")`);
+  preview.querySelector('#situation').textContent=c[0];
+  preview.querySelector('#card-number').textContent=`${String(index+2).padStart(2,'0')} / 05`;
+  preview.querySelector('#korean').textContent=c[2];preview.querySelector('#korean').classList.remove('revealed');
+  preview.querySelector('#card-prompt').textContent='영어로 어떻게 말할까요?';preview.querySelector('#answer').hidden=true;
+ }else{
+  preview.querySelector('#card-prompt').textContent='오늘의 레슨';
+  preview.querySelector('#korean').textContent='아빠, 오늘도 한 걸음!';
+  preview.querySelector('#korean').classList.remove('revealed');preview.querySelector('#answer').hidden=true;
+ }
+ preview.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));
+ preview.querySelectorAll('[aria-controls]').forEach(el=>el.removeAttribute('aria-controls'));
+ paperStage.insertBefore(preview,paper);paperStage.classList.add('turning');
+}
+async function settlePaper(){
+ busy=true;
+ try{
+  if(!reducedMotion())await paper.animate([{transform:paper.style.transform||'none'},{transform:'none'}],{duration:220,easing:'cubic-bezier(.2,.8,.2,1)'}).finished;
+ }finally{paper.style.transform='';clearPreview();busy=false}
+}
+async function turnPaper(direction,apply){
  if(busy||$('complete').open)return;
- $('answer').hidden=false;$('korean').classList.add('revealed');$('card-prompt').textContent='이렇게 말하면 돼요.';
- viewed[lesson].add(index);$('mastered-count').textContent=`답 확인 ${viewed[lesson].size} / 5`;
- $('status').textContent='천천히 소리 내어 따라 해보세요.';tiles();
+ busy=true;preparePreview(direction);
+ if('speechSynthesis'in window)speechSynthesis.cancel();
+ let outgoing,incoming;
+ try{
+  if(!reducedMotion()){
+   const distance=Math.max(paperStage.getBoundingClientRect().width,window.innerWidth)*1.15;
+   outgoing=paper.animate([{transform:paper.style.transform||'none',opacity:1},{transform:`translateX(${direction*distance}px) translateY(-20px) rotate(${direction*13}deg)`,opacity:.15}],{duration:420,easing:'cubic-bezier(.3,.65,.3,1)',fill:'forwards'});
+   incoming=preview.animate([{transform:preview.style.transform||'translateY(10px) scale(.98)'},{transform:'none'}],{duration:420,easing:'cubic-bezier(.2,.8,.2,1)',fill:'forwards'});
+   await outgoing.finished;
+  }
+  apply();
+ }finally{paper.style.transform='';outgoing?.cancel();incoming?.cancel();clearPreview();busy=false}
+}
+function reveal(){
+ if(!$('answer').hidden){if(!busy&&paper.style.transform)settlePaper();return}
+ return turnPaper(-1,()=>{
+  $('answer').hidden=false;$('korean').classList.add('revealed');$('card-prompt').textContent='이렇게 말하면 돼요.';
+  viewed[lesson].add(index);$('mastered-count').textContent=`답 확인 ${viewed[lesson].size} / 5`;
+  $('status').textContent='천천히 소리 내어 따라 해보세요.';tiles();
+ });
 }
 function next(){
- if(busy||$('complete').open)return;busy=true;
- if('speechSynthesis'in window)speechSynthesis.cancel();
- const card=$('card');card.style.transform='translateX(60px) rotate(4deg)';card.style.opacity='0';
- setTimeout(()=>{if(index===lessons[lesson].cards.length-1){$('complete-text').textContent=`${lessons[lesson].title}의 다섯 카드를 둘러봤어요. 영어 답은 ${viewed[lesson].size}개 확인했어요.`;$('complete').showModal()}else{index++;render();$('status').textContent='새 문장이에요. 영어로 떠올려보세요.'}card.style.transform='';card.style.opacity='';busy=false},matchMedia('(prefers-reduced-motion: reduce)').matches?0:180);
+ return turnPaper(1,()=>{
+  if(index===lessons[lesson].cards.length-1){$('complete-text').textContent=`${lessons[lesson].title}의 다섯 카드를 둘러봤어요. 영어 답은 ${viewed[lesson].size}개 확인했어요.`;$('complete').showModal()}
+  else{index++;render();$('status').textContent='새 문장이에요. 영어로 떠올려보세요.'}
+ });
 }
 $('again').onclick=reveal;$('known').onclick=next;
 $('hint-toggle').onclick=()=>{const open=$('hint').hidden;$('hint').hidden=!open;$('hint-toggle').setAttribute('aria-expanded',String(open));$('hint-toggle').innerHTML=`말하기 힌트 ${open?'접기':'보기'} <span aria-hidden="true">${open?'−':'＋'}</span>`};
@@ -66,8 +121,40 @@ function showLessons(){$('lessons').scrollIntoView({behavior:scrollBehavior()});
 $('choose-lesson').onclick=showLessons;$('lessons-nav').onclick=showLessons;$('learn-nav').onclick=()=>{document.querySelector('.study').scrollIntoView({behavior:scrollBehavior()});$('learn-nav').classList.add('active');$('learn-nav').setAttribute('aria-current','page');$('lessons-nav').classList.remove('active');$('lessons-nav').removeAttribute('aria-current')};
 $('review').onclick=()=>load(lesson);$('next-lesson').onclick=()=>{load((lesson+1)%lessons.length);$('learn-nav').click()};$('close-dialog').onclick=()=>$('complete').close();
 const card=$('card');
-card.addEventListener('pointerdown',e=>{if(e.target.closest('button')||busy||$('complete').open)return;startX=e.clientX;startY=e.clientY;card.setPointerCapture(e.pointerId)});
-card.addEventListener('pointerup',e=>{if(startX===null)return;const dx=e.clientX-startX,dy=e.clientY-startY;startX=null;if(Math.abs(dx)>65&&Math.abs(dx)>Math.abs(dy)*1.3){if(dx>0)next();else reveal()}});
-card.addEventListener('pointercancel',()=>{startX=null});
-card.addEventListener('keydown',e=>{if(e.target!==card)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(e.key==='ArrowLeft')reveal();else next()}});
+function endGesture(){
+ startX=null;startY=null;dragging=false;
+ if(pointerId!==null&&card.hasPointerCapture(pointerId))card.releasePointerCapture(pointerId);
+ pointerId=null;
+}
+card.addEventListener('pointerdown',e=>{
+ if(e.target.closest('button')||busy||$('complete').open||pointerId!==null||!e.isPrimary||e.button!==0)return;
+ startX=e.clientX;startY=e.clientY;pointerId=e.pointerId;dragging=false;
+});
+card.addEventListener('pointermove',e=>{
+ if(e.pointerId!==pointerId||startX===null||busy)return;
+ const dx=e.clientX-startX,dy=e.clientY-startY;
+ if(!dragging){
+  if(Math.abs(dy)>12&&Math.abs(dy)>Math.abs(dx)){endGesture();return}
+  if(Math.abs(dx)<10||Math.abs(dx)<Math.abs(dy)*1.2)return;
+  dragging=true;card.setPointerCapture(e.pointerId);
+ }
+ if(dx<0&&!$('answer').hidden){card.style.transform='';clearPreview();return}
+ preparePreview(dx<0?-1:1);
+ if(!reducedMotion()){
+  const width=paperStage.getBoundingClientRect().width,progress=Math.min(Math.abs(dx)/width,1);
+  card.style.transform=`translateX(${dx}px) translateY(${-progress*9}px) rotate(${Math.max(-9,Math.min(9,dx/width*10))}deg)`;
+  preview.style.transform=`translateY(${10*(1-progress)}px) scale(${.98+.02*progress})`;
+ }
+});
+card.addEventListener('pointerup',e=>{
+ if(e.pointerId!==pointerId||startX===null)return;
+ const dx=e.clientX-startX,dy=e.clientY-startY,wasDragging=dragging;endGesture();
+ if(!wasDragging)return;
+ const threshold=Math.min(100,card.getBoundingClientRect().width*.22);
+ if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*1.2){if(dx>0)next();else reveal()}
+ else settlePaper();
+});
+card.addEventListener('pointercancel',()=>{if(pointerId===null)return;endGesture();if(!busy)settlePaper()});
+card.addEventListener('lostpointercapture',()=>{if(pointerId===null)return;endGesture();if(!busy)settlePaper()});
+card.addEventListener('keydown',e=>{if(e.target!==card||pointerId!==null)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(e.key==='ArrowLeft')reveal();else next()}});
 load(0);
