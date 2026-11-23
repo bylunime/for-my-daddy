@@ -38,3 +38,5 @@ body{overflow-x:clip}
 .paper-preview .actions{visibility:hidden}
 @media(max-width:700px){.card-stage{margin:10px 5px 24px}.card-stage::before,.card-stage::after{border-radius:22px}.card{min-height:calc(100svh - 174px)}}
 @media(prefers-reduced-motion:reduce){.card-stage::before{transform:translateY(12px) scale(.98)}.card-stage::after{transform:translateY(6px) scale(.99)}}
+
+.actions button:disabled{opacity:.25;cursor:default;background:none}

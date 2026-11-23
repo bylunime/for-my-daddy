@@ -25,26 +25,36 @@ const lessons = [
  ['고마움 전하기','Thank you for your help.','도와주셔서 감사합니다.','Thank you만 말해도 마음이 전해져요.']]}
 ];
 const $=id=>document.getElementById(id);
-let lesson=0,index=0,busy=false,startX=null,startY=null;
+let lesson=0,index=0,page=0,busy=false,startX=null,startY=null;
 const viewed=lessons.map(()=>new Set());
 function tiles(){
  const grid=$('lesson-grid');grid.replaceChildren();
  lessons.forEach((l,i)=>{const b=document.createElement('button');b.className='lesson-tile'+(i===lesson?' selected':'');b.setAttribute('aria-pressed',String(i===lesson));b.innerHTML=`<span class="tile-top"><span class="tile-number">LESSON ${String(i+1).padStart(2,'0')}</span><span class="tile-icon" aria-hidden="true">${l.icon}</span></span><strong>${l.title}</strong><span class="tile-sub">${l.sub}</span><span class="tile-state">${i===lesson?'지금 연습 중':`답 확인 ${viewed[i].size} / 5`}</span>`;b.onclick=()=>{load(i);$('learn-nav').click()};grid.append(b)})
 }
-function load(i){if(busy||pointerId!==null)return;lesson=i;index=0;$('complete').close();$('status').textContent='';render();tiles()}
+function load(i){if(busy||pointerId!==null)return;lesson=i;index=0;page=0;$('complete').close();$('status').textContent='';render();tiles()}
+const sceneNames=['airport','hotel','restaurant','city'];
+function paintPage(root,target){
+ const questionIndex=Math.floor(target/2),isAnswer=target%2===1,c=lessons[lesson].cards[questionIndex];
+ const find=id=>root.querySelector('#'+id);
+ root.style.setProperty('--scene-image',`url("assets/${sceneNames[lesson]}-${questionIndex+1}.png")`);
+ find('situation').textContent=c[0];
+ find('card-number').textContent=`${String(questionIndex+1).padStart(2,'0')} / 05 · ${isAnswer?'답':'질문'}`;
+ find('korean').textContent=c[2];find('korean').hidden=isAnswer;
+ find('korean').classList.remove('revealed');
+ find('english').textContent=c[1];find('hint').textContent=c[3];find('hint').hidden=true;
+ find('answer').hidden=!isAnswer;
+ find('card-prompt').textContent=isAnswer?'듣고, 천천히 따라 말해보세요.':'영어로 어떻게 말할까요?';
+ find('hint-toggle').setAttribute('aria-expanded','false');find('hint-toggle').innerHTML='말하기 힌트 보기 <span aria-hidden="true">＋</span>';
+ find('again').disabled=target===0;
+}
 function render(){
- const l=lessons[lesson],c=l.cards[index];
- document.body.style.setProperty("--scene-image", `url("assets/${["airport","hotel","restaurant","city"][lesson]}-${index+1}.png")`);
- document.body.dataset.scene=["airport","hotel","restaurant","city"][lesson];
- $('lesson-label').textContent=`LESSON ${String(lesson+1).padStart(2,'0')} · ${l.title}`;
- $('progress-label').textContent=`오늘의 카드 ${index+1} / ${l.cards.length}`;
+ index=Math.floor(page/2);
+ if(page%2===1)viewed[lesson].add(index);
+ paintPage($('card'),page);
+ $('lesson-label').textContent=`LESSON ${String(lesson+1).padStart(2,'0')} · ${lessons[lesson].title}`;
+ $('progress-label').textContent=`오늘의 페이지 ${page+1} / ${lessons[lesson].cards.length*2}`;
  $('mastered-count').textContent=`답 확인 ${viewed[lesson].size} / 5`;
- $('progress-fill').style.width=`${(index+1)/l.cards.length*100}%`;
- $('situation').textContent=c[0];$('card-number').textContent=`${String(index+1).padStart(2,'0')} / 05`;
- $('english').textContent=c[1];$('korean').textContent=c[2];$('hint').textContent=c[3];
- $('answer').hidden=true;$('korean').classList.remove('revealed');$('hint').hidden=true;
- $('card-prompt').textContent='영어로 어떻게 말할까요?';
- $('hint-toggle').setAttribute('aria-expanded','false');$('hint-toggle').innerHTML='말하기 힌트 보기 <span aria-hidden="true">＋</span>';
+ $('progress-fill').style.width=`${(page+1)/(lessons[lesson].cards.length*2)*100}%`;
 }
 const paperStage=document.querySelector('.card-stage');
 const paper=$('card');
@@ -58,21 +68,14 @@ function preparePreview(direction){
  preview.removeAttribute('id');preview.removeAttribute('tabindex');
  preview.classList.add('paper-preview');preview.setAttribute('aria-hidden','true');preview.inert=true;
  preview.style.transform='';preview.style.opacity='';
- if(direction>0){
-  preview.querySelector('#answer').hidden=false;
-  preview.querySelector('#korean').classList.add('revealed');
-  preview.querySelector('#card-prompt').textContent='이렇게 말하면 돼요.';
- }else if(index<lessons[lesson].cards.length-1){
-  const c=lessons[lesson].cards[index+1];
-  preview.style.setProperty('--scene-image',`url("assets/${['airport','hotel','restaurant','city'][lesson]}-${index+2}.png")`);
-  preview.querySelector('#situation').textContent=c[0];
-  preview.querySelector('#card-number').textContent=`${String(index+2).padStart(2,'0')} / 05`;
-  preview.querySelector('#korean').textContent=c[2];preview.querySelector('#korean').classList.remove('revealed');
-  preview.querySelector('#card-prompt').textContent='영어로 어떻게 말할까요?';preview.querySelector('#answer').hidden=true;
+ const target=page+(direction<0?1:-1);
+ if(target>=0&&target<lessons[lesson].cards.length*2){
+  paintPage(preview,target);
  }else{
   preview.querySelector('#card-prompt').textContent='오늘의 레슨';
-  preview.querySelector('#korean').textContent='아빠, 오늘도 한 걸음!';
-  preview.querySelector('#korean').classList.remove('revealed');preview.querySelector('#answer').hidden=true;
+  preview.querySelector('#korean').hidden=false;
+  preview.querySelector('#korean').textContent='이 정도면 여행 준비 끝!';
+  preview.querySelector('#answer').hidden=true;
  }
  preview.querySelectorAll('[id]').forEach(el=>el.removeAttribute('id'));
  preview.querySelectorAll('[aria-controls]').forEach(el=>el.removeAttribute('aria-controls'));
@@ -99,21 +102,17 @@ async function turnPaper(direction,apply){
   apply();
  }finally{paper.style.transform='';paper.style.opacity='';outgoing?.cancel();incoming?.cancel();clearPreview();busy=false}
 }
-function reveal(){
- if(!$('answer').hidden){if(!busy&&paper.style.transform)settlePaper();return}
- return turnPaper(1,()=>{
-  $('answer').hidden=false;$('korean').classList.add('revealed');$('card-prompt').textContent='이렇게 말하면 돼요.';
-  viewed[lesson].add(index);$('mastered-count').textContent=`답 확인 ${viewed[lesson].size} / 5`;
-  $('status').textContent='천천히 소리 내어 따라 해보세요.';tiles();
- });
+function previous(){
+ if(page===0){if(!busy&&paper.style.transform)return settlePaper();return}
+ return turnPaper(1,()=>{page--;render();$('status').textContent=`${index+1}번 문장의 ${page%2?'영어 답':'한글 질문'}입니다.`});
 }
 function next(){
  return turnPaper(-1,()=>{
-  if(index===lessons[lesson].cards.length-1){$('complete-text').textContent=`${lessons[lesson].title}의 다섯 카드를 둘러봤어요. 영어 답은 ${viewed[lesson].size}개 확인했어요.`;$('complete').showModal()}
-  else{index++;render();$('status').textContent='새 문장이에요. 영어로 떠올려보세요.'}
+  if(page===lessons[lesson].cards.length*2-1){$('complete-text').textContent=`${lessons[lesson].title}의 다섯 문장을 모두 연습했어요. 같은 레슨을 다시 보거나 다음 레슨으로 이어가세요.`;$('complete').showModal()}
+  else{page++;render();$('status').textContent=page%2?'영어 답이에요. 듣고 따라 말해보세요.':'새 질문이에요. 영어로 떠올려보세요.';tiles()}
  });
 }
-$('again').onclick=reveal;$('known').onclick=next;
+$('again').onclick=previous;$('known').onclick=next;
 $('hint-toggle').onclick=()=>{const open=$('hint').hidden;$('hint').hidden=!open;$('hint-toggle').setAttribute('aria-expanded',String(open));$('hint-toggle').innerHTML=`말하기 힌트 ${open?'접기':'보기'} <span aria-hidden="true">${open?'−':'＋'}</span>`};
 $('listen').onclick=()=>{if(!('speechSynthesis'in window)){$('status').textContent='이 브라우저에서는 발음 듣기를 지원하지 않아요.';return}speechSynthesis.cancel();const u=new SpeechSynthesisUtterance($('english').textContent);u.lang='en-US';u.rate=.78;const voice=speechSynthesis.getVoices().find(v=>v.lang==='en-US');if(voice)u.voice=voice;u.onerror=()=>{$('status').textContent='음성을 재생하지 못했어요. 기기의 영어 음성 설정을 확인해주세요.'};speechSynthesis.speak(u)};
 const scrollBehavior=()=>matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth';
@@ -138,7 +137,7 @@ card.addEventListener('pointermove',e=>{
   if(Math.abs(dx)<10||Math.abs(dx)<Math.abs(dy)*1.2)return;
   dragging=true;card.setPointerCapture(e.pointerId);
  }
- if(dx>0&&!$('answer').hidden){card.style.transform='';card.style.opacity='';clearPreview();return}
+ if(dx>0&&page===0){card.style.transform='';card.style.opacity='';clearPreview();return}
  preparePreview(dx<0?-1:1);
  if(!reducedMotion()){
   const width=paperStage.getBoundingClientRect().width,progress=Math.min(Math.abs(dx)/width,1);
@@ -152,10 +151,10 @@ card.addEventListener('pointerup',e=>{
  const dx=e.clientX-startX,dy=e.clientY-startY,wasDragging=dragging;endGesture();
  if(!wasDragging)return;
  const threshold=Math.min(100,card.getBoundingClientRect().width*.22);
- if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*1.2){if(dx>0)reveal();else next()}
+ if(Math.abs(dx)>threshold&&Math.abs(dx)>Math.abs(dy)*1.2){if(dx>0)previous();else next()}
  else settlePaper();
 });
 card.addEventListener('pointercancel',()=>{if(pointerId===null)return;endGesture();if(!busy)settlePaper()});
 card.addEventListener('lostpointercapture',()=>{if(pointerId===null)return;endGesture();if(!busy)settlePaper()});
-card.addEventListener('keydown',e=>{if(e.target!==card||pointerId!==null)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(e.key==='ArrowLeft')next();else reveal()}});
+card.addEventListener('keydown',e=>{if(e.target!==card||pointerId!==null)return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();if(e.key==='ArrowLeft')next();else previous()}});
 load(0);
